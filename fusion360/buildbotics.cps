@@ -456,6 +456,7 @@ function isProbeOperation() {
 }
 
 function onSection() {
+
   var insertToolCall = isFirstSection() ||
     currentSection.getForceToolChange && currentSection.getForceToolChange() ||
     (tool.number != getPreviousSection().getTool().number);
@@ -492,7 +493,7 @@ function onSection() {
   }
 
   if (isFirstSection() && properties.skipFirstToolChange) {
-    writeRetract(Z)
+    //writeRetract(Z);
   } else if (insertToolCall) {
     forceWorkPlane();
     
@@ -614,7 +615,7 @@ function onSection() {
       sOutput.format(spindleSpeed), mFormat.format(tool.clockwise ? 3 : 4)
     );
   }
-  if (isProbeOperation() == true) return;
+  //if (isProbeOperation() == true) return;
   
   // wcs
   if (insertToolCall) { // force work offset when changing tool
@@ -648,7 +649,7 @@ function onSection() {
   }
   forceXYZ();
   
-  if (isProbeOperation() == true) return;
+  //if (isProbeOperation() == true) return;
 
   if (machineConfiguration.isMultiAxisConfiguration()) { // use 5-axis indexing for multi-axis mode
     // set working plane after datum shift
@@ -675,12 +676,14 @@ function onSection() {
   setCoolant(tool.coolant);
 
   forceAny();
+
   var initialPosition = getFramePosition(currentSection.getInitialPosition());
-  if (!retracted && !insertToolCall) {
-    if (getCurrentPosition().z < initialPosition.z) {
-      writeBlock(gMotionModal.format(0), zOutput.format(initialPosition.z));
-    }
-  }
+  writeBlock(gAbsIncModal.format(90), gFormat.format(0), zOutput.format(initialPosition.z));
+  //if (!retracted && !insertToolCall) {
+    //if (getCurrentPosition().z <= initialPosition.z) {
+    //writeBlock(gAbsIncModal.format(90), gFormat.format(0), zOutput.format(initialPosition.z));
+    //}
+  //}
 
   if ((insertToolCall || retracted) && properties.toolLengthCompensation) {
     error(localize("Tool length compensation not supported in Buildbotics Controller"));
@@ -709,7 +712,7 @@ function onSection() {
         writeBlock(
         gAbsIncModal.format(90),
         gMotionModal.format(0),
-        gFormat.format(43), xOutput.format(initialPosition.x),
+        gFormat.format(43),xOutput.format(initialPosition.x),
         yOutput.format(initialPosition.y),
         zOutput.format(initialPosition.z), hFormat.format(lengthOffset));
       } else {
@@ -724,7 +727,8 @@ function onSection() {
   } else {
     writeBlock(
       gAbsIncModal.format(90),
-      gMotionModal.format(0),
+      gFormat.format(0),
+      zOutput.format(initialPosition.z),
       xOutput.format(initialPosition.x),
       yOutput.format(initialPosition.y)
     );
@@ -770,32 +774,57 @@ function getCommonCycle(x, y, z, r) {
 /* Modified by Buildbotics to disable "Canned" cycles. This changes simply expands all cycle calls
 to individual g-code commands and returns.*/
 function onCyclePoint(x, y, z) {
+  
+  var workOffset = currentSection.workOffset;
+  if (workOffset == 0) {
+    warningOnce(localize("Work offset has not been specified. Using G54 as WCS."), WARNING_WORK_OFFSET);
+    workOffset = 1;
+  }
+  if (workOffset > 0) {
+    if (workOffset > 6) {
+      var code = workOffset - 6;
+      if (code > 3) {
+        error(localize("Work offset out of range."));
+        return;
+      }
+      if (workOffset != currentWorkOffset) {
+        forceWorkPlane();
+        writeBlock(gFormat.format(59) + "." + code);
+        currentWorkOffset = workOffset;
+      }
+    } else {
+      if (workOffset != currentWorkOffset) {
+        forceWorkPlane();
+        writeBlock(gFormat.format(53 + workOffset)); // G54->G59
+        currentWorkOffset = workOffset;
+      }
+    }
+  }
+  
   switch (cycleType) {
   case "probing-xy-outer-corner":
     writeComment(cycleType)
-    value1 = (cycle.approach1 == 'positive') ? 1 : -1; 
-    value2 = (cycle.approach2 == 'positive') ? 1 : -1;
-    offset = (cycle.probeClearance + tool.diameter/2)
-
-    writeBlock(gFormat.format(0),"Z" + cycle.retract)
-    writeBlock(gFormat.format(0),"Y" + (y + value2 * (2 * offset)))
-    writeBlock(gFormat.format(1),"Z" + -tool.diameter/2)
+    value = (cycle.approach1 == 'positive') ? 1 : -1; 
+    offset = (cycle.probeClearance + tool.diameter/2);
+    writeBlock(gFormat.format(0),"Z" + cycle.bottom)
+    writeBlock(gFormat.format(0),"X" + value * cycle.retract)
     writeBlock(gFormat.format(91))
-    writeBlock(gFormat.format(38) + ".2 X" + value1 * (offset + cycle.probeOvertravel))
-    writeBlock(gFormat.format(92), "X" + (x + value1 * (offset - tool.diameter / 2)))
+    writeBlock(gFormat.format(38) + ".2 Y" + value * (cycle.retract + cycle.probeOvertravel))
+    writeBlock(gFormat.format(92), "Y" + 0)
     writeBlock(gFormat.format(90))
     writeBlock(gFormat.format(0),"Z" + cycle.retract)
-    writeBlock(gFormat.format(0),"Y" + y)
-
+    writeBlock(gFormat.format(0),"Y" + -cycle.retract)
+    writeBlock(gFormat.format(0),"X" + -cycle.retract)
     writeComment("probing y")
-    writeBlock(gFormat.format(0),"X" + (x + value1 * (2 * offset)))
-    writeBlock(gFormat.format(1),"Z" + -tool.diameter/2)
+    writeBlock(gFormat.format(0),"Y" + value * cycle.retract)
     writeBlock(gFormat.format(91))
-    writeBlock(gFormat.format(38) + ".2 Y" + value2 * (offset + cycle.probeOvertravel))
-    writeBlock(gFormat.format(92), "Y" + (y + value2 * (offset - tool.diameter / 2)))
+    writeBlock(gFormat.format(38) + ".2 X" + value * (cycle.retract + cycle.probeOvertravel))
+    writeBlock(gFormat.format(92), "X" + 0)
     writeBlock(gFormat.format(90))
+    writeBlock(gFormat.format(0),"X" + -cycle.retract)
+    writeBlock(gFormat.format(0),"Y" + -cycle.retract)
     writeBlock(gFormat.format(0),"Z" + cycle.retract)
-    writeBlock(gFormat.format(0),"X" + (x + value1 * offset), "Y" + (y + value2 * offset))
+    writeBlock(gFormat.format(0),"X" + 0,"Y" + 0)
     return;
   case "probing-x":
     writeComment(cycleType)
@@ -830,6 +859,144 @@ function onCyclePoint(x, y, z) {
     writeBlock(gFormat.format(90))
     writeBlock(gFormat.format(0),"Z" + cycle.retract)
     writeBlock(gFormat.format(0),"X" + 0,"Y" + 0)
+    return;
+  case "probing-xy-circular-hole":
+    writeComment(cycleType)
+    value = (cycle.approach1 == 'positive') ? 1 : -1;      
+    offset = (cycle.probeClearance + tool.diameter/2);
+    writeBlock("#<rad>=" + (cycle.width1 / 2))
+    writeBlock("#<tool_dia>=" + tool.diameter)
+    var i;
+    for (i = 0; i < 3; i++) {
+      writeBlock("#<cycle>="+ (i+1))
+      writeBlock(gFormat.format(0),"Z" + cycle.bottom)
+      //X Pos. Circle Center 
+      writeBlock(gFormat.format(90))
+      writeBlock(gFormat.format(91))
+      writeBlock(gFormat.format(38) + ".2 X" + -value * (cycle.retract + cycle.probeOvertravel))
+      writeBlock("#<x_right>=#5061-#5211")
+      writeBlock(gFormat.format(90))
+      writeBlock(gFormat.format(0),"X" + 0,"Y" + 0)
+      writeBlock(gFormat.format(91))
+      writeBlock(gFormat.format(38) + ".2 X" + value * (cycle.retract + cycle.probeOvertravel))
+      writeBlock("#<x_left>=#5211-#5061")
+      writeBlock(gFormat.format(90))
+      writeBlock(gFormat.format(0),"X" + 0,"Y" + 0)
+      writeBlock("#<dx>=" + "[[#<x_right>-#<x_left>]*0.5]")
+      writeBlock(gFormat.format(91))
+      writeBlock(gFormat.format(0),"X" + "#<dx>")
+      writeBlock(gFormat.format(92), "X" + 0)
+      //Y Pos. Circle Center
+      writeBlock(gFormat.format(90))
+      writeBlock(gFormat.format(91))
+      writeBlock(gFormat.format(38) + ".2 Y" + -value * (cycle.retract + cycle.probeOvertravel))
+      writeBlock("#<y_back>=#5062-#5212")
+      writeBlock(gFormat.format(90))
+      writeBlock(gFormat.format(0),"X" + 0,"Y" + 0)
+      writeBlock(gFormat.format(91))
+      writeBlock(gFormat.format(38) + ".2 Y" + value * (cycle.retract + cycle.probeOvertravel))
+      writeBlock("#<y_front>=#5212-#5062") 
+      writeBlock(gFormat.format(90))
+      writeBlock(gFormat.format(0),"X" + 0,"Y" + 0)
+      writeBlock("#<dy>=" + "[[#<y_back>-#<y_front>]*0.5]")
+      writeBlock(gFormat.format(91))
+      writeBlock(gFormat.format(0),"Y" + "#<dy>")
+      writeBlock(gFormat.format(92), "Y" + 0)
+      writeBlock(gFormat.format(90))
+      writeBlock("#<dx_rad>=[[#<rad>-[#<x_right>+[#<tool_dia>/2]]]*-1]")
+      writeBlock("#<dy_rad>=[[#<rad>-[#<y_back>+[#<tool_dia>/2]]]*-1]")
+      writeBlock("(Debug, #<cycle>.Run - Radius: #<rad> | dRx: #<dx_rad> | dRy: #<dy_rad>)")
+      writeBlock("M0")
+    }
+    return;
+  case "probing-x-wall":
+    writeComment(cycleType)
+    value1 = (cycle.approach1 == 'positive') ? 1 : -1; 
+    offset = (cycle.probeClearance + tool.diameter/2);
+    width_x = (cycle.width1);
+    writeBlock("#<width>="+ width_x)
+    writeBlock("#<tool_dia>="+ tool.diameter)
+    writeBlock(gFormat.format(0),"Z" + cycle.retract)
+    writeBlock(gFormat.format(0),"X" + (width_x - (value1 * offset)))
+    writeBlock(gFormat.format(0),"Z" + cycle.bottom)
+    writeBlock(gFormat.format(91))
+    writeBlock(gFormat.format(38) + ".2 X" + value1 * (cycle.retract + cycle.probeOvertravel))
+    writeBlock("#<x_right>=#5061")
+    writeBlock(gFormat.format(90))
+    writeBlock(gFormat.format(0),"X" + (width_x - (value1 * offset)))
+    writeBlock(gFormat.format(0),"Z" + cycle.retract)
+    writeBlock(gFormat.format(0),"X" + (value1 * offset))
+    writeBlock(gFormat.format(0),"Z" + cycle.bottom)
+    writeBlock(gFormat.format(91))
+    writeBlock(gFormat.format(38) + ".2 X" + -(value1 * (cycle.retract + cycle.probeOvertravel)))
+    writeBlock("#<x_left>=#5061")
+    writeBlock(gFormat.format(90))
+    writeBlock(gFormat.format(0),"X" + (value1 * offset))
+    writeBlock(gFormat.format(0),"Z" + cycle.retract)
+    writeBlock(gFormat.format(0),"X" + (width_x/2))
+    writeBlock("#<width_x>=[#<x_right>-#<x_left>-#<tool_dia>]")
+    writeBlock("(Debug, reference:#<width> | actual:#<width_x>)")
+    writeBlock("M0")
+    return;
+  case "probing-y-plane-angle":
+    writeComment(cycleType)
+    value1 = (cycle.approach1 == 'positive') ? 1 : -1; 
+    offset = (cycle.probeClearance + tool.diameter/2);
+    probedist = (cycle.probeSpacing);
+    width_x = (cycle.width2);
+    writeBlock(gFormat.format(0),"Z" + cycle.bottom)
+    writeBlock(gFormat.format(91))
+    writeBlock(gFormat.format(0),"X" + -(value1 * (probedist/2)))
+    writeBlock(gFormat.format(38) + ".2 Y" + value1 * (cycle.retract + cycle.probeOvertravel))
+    writeBlock("#<x_left>=#5061")
+    writeBlock("#<y_left>=#5062")
+    writeBlock("(Debug, x_l: #<x_left> | y_l: #<y_left>)")
+    writeBlock("M0")
+    writeBlock(gFormat.format(0),"Y" + -(value1 * offset))
+    writeBlock(gFormat.format(0),"X" +  (value1 * probedist))
+    writeBlock(gFormat.format(38) + ".2 Y" + value1 * (cycle.retract + cycle.probeOvertravel))
+    writeBlock("#<x_right>=#5061")
+    writeBlock("#<y_right>=#5062")
+    writeBlock("(Debug, x_r: #<x_right> | y_r: #<y_right>)")
+    writeBlock("M0")
+    writeBlock(gFormat.format(0),"Y" + -(value1 * offset))
+    writeBlock(gFormat.format(0),"X" + -(value1 * (probedist/2)))
+    writeBlock("#<dx>=" + "[#<x_right>-#<x_left>]")
+    writeBlock("#<dy>=" + "[#<y_right>-#<y_left>]")
+    writeBlock("#<phi>=" + "ATAN[#<dy>]/[#<dx>]")
+    writeBlock("(Debug,dx:#<dx>|dy:#<dy>|phi:#<phi> Degree)")
+    writeBlock("M0")
+    writeBlock(gFormat.format(90))
+    return;
+  case "probing-x-plane-angle":
+    writeComment(cycleType)
+    value1 = (cycle.approach1 == 'positive') ? 1 : -1; 
+    offset = (cycle.probeClearance + tool.diameter/2);
+    probedist = (cycle.probeSpacing);
+    width_x = (cycle.width2);
+    writeBlock(gFormat.format(0),"Z" + cycle.bottom)
+    writeBlock(gFormat.format(91))
+    writeBlock(gFormat.format(0),"Y" + -(value1 * (probedist/2)))
+    writeBlock(gFormat.format(38) + ".2 X" + value1 * (cycle.retract + cycle.probeOvertravel))
+    writeBlock("#<x_right>=#5061")
+    writeBlock("#<y_right>=#5062")
+    writeBlock("(Debug, x_r: #<x_right> | y_r: #<y_right>)")
+    writeBlock("M0")
+    writeBlock(gFormat.format(0),"X" + -(value1 * offset))
+    writeBlock(gFormat.format(0),"Y" +  (value1 * probedist))
+    writeBlock(gFormat.format(38) + ".2 X" + value1 * (cycle.retract + cycle.probeOvertravel))
+    writeBlock("#<x_left>=#5061")
+    writeBlock("#<y_left>=#5062")
+    writeBlock("(Debug, x_l: #<x_left> | y_l: #<y_left>)")
+    writeBlock("M0")
+    (gFormat.format(0),"X" + -(value1 * offset))
+    writeBlock(gFormat.format(0),"Y" + -(value1 * (probedist/2)))
+    writeBlock("#<dx>=" + "[#<x_left>-#<x_right>]")
+    writeBlock("#<dy>=" + "[#<y_left>-#<y_right>]")
+    writeBlock("#<phi>=" + "ATAN[#<dy>]/[#<dx>]")
+    writeBlock("(Debug,dx:#<dx>|dy:#<dy>|phi:#<phi> Degree)")
+    writeBlock("M0")
+    writeBlock(gFormat.format(90))
     return;
   case "probe":
   case "tapping":
@@ -1007,7 +1174,7 @@ function onCyclePoint(x, y, z) {
 function onCycleEnd() {
   if (!cycleExpanded) {
     writeBlock(gCycleModal.format(80));
-    zOutput.reset();
+    //writeRetract(Z);
   }
 }
 
@@ -1369,7 +1536,7 @@ function writeRetract() {
   if (words.length > 0) {
     gMotionModal.reset();
     gAbsIncModal.reset();
-    writeBlock(gFormat.format(0), gAbsIncModal.format(91), words); // retract
+    writeBlock(gAbsIncModal.format(91), gFormat.format(0), words); // retract
     writeBlock(gAbsIncModal.format(90));
   }
   zOutput.reset();
